@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
+import { login } from '../services/api'
 
 function Login() {
   const navigate = useNavigate()
@@ -7,27 +8,33 @@ function Login() {
     username: '',
     password: ''
   })
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
 
   const handleChange = (e) => {
     setFormData({
       ...formData,
       [e.target.name]: e.target.value
     })
+    setError('') // Clear error when user types
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    // TODO: Add authentication logic here
-    console.log('Login data:', formData)
+    setError('')
+    setLoading(true)
 
-    // For now, navigate to survey after login
-    // Later, this will verify credentials against database
-    if (formData.username && formData.password) {
-      // Store username in localStorage for now
-      localStorage.setItem('username', formData.username)
+    try {
+      const data = await login(formData.username, formData.password)
+      console.log('Login successful:', data)
+      
+      // Navigate to survey after successful login
       navigate('/survey')
-    } else {
-      alert('Please enter both username and password')
+    } catch (err) {
+      console.error('Login error:', err)
+      setError(err.message || 'Login failed. Please check your credentials.')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -35,6 +42,20 @@ function Login() {
     <div className="container">
       <div className="form-container">
         <h2>Welcome Back!</h2>
+        
+        {error && (
+          <div style={{
+            padding: '12px',
+            marginBottom: '20px',
+            backgroundColor: '#fee',
+            color: '#c33',
+            borderRadius: '6px',
+            fontSize: '14px'
+          }}>
+            {error}
+          </div>
+        )}
+
         <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label htmlFor="username">Username</label>
@@ -46,6 +67,7 @@ function Login() {
               onChange={handleChange}
               placeholder="Enter your username"
               required
+              disabled={loading}
             />
           </div>
 
@@ -59,11 +81,12 @@ function Login() {
               onChange={handleChange}
               placeholder="Enter your password"
               required
+              disabled={loading}
             />
           </div>
 
-          <button type="submit" className="btn-primary">
-            Login
+          <button type="submit" className="btn-primary" disabled={loading}>
+            {loading ? 'Logging in...' : 'Login'}
           </button>
         </form>
 

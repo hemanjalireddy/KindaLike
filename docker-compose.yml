@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: kindalike_db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: kindalike123
+      POSTGRES_DB: kindalike
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - kindalike-network
+
+  # Python FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: kindalike_backend
+    restart: always
+    environment:
+      DB_USER: postgres
+      DB_HOST: postgres
+      DB_NAME: kindalike
+      DB_PASSWORD: kindalike123
+      DB_PORT: 5432
+      PORT: 5000
+      JWT_SECRET: kindalike_secret_key_2024
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - kindalike-network
+    command: poetry run uvicorn app.main:app --host 0.0.0.0 --port 5000 --reload
+
+  # React Frontend
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kindalike_frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - kindalike-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  kindalike-network:
+    driver: bridge

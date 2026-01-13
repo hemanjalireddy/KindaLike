@@ -1,18 +1,21 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { savePreferences, getCurrentUser } from '../services/api'
 
 function Survey() {
   const navigate = useNavigate()
-  const username = localStorage.getItem('username')
+  const currentUser = getCurrentUser()
 
   const [currentStep, setCurrentStep] = useState(1)
   const totalSteps = 5
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
   const [preferences, setPreferences] = useState({
-    cuisineType: '',
-    priceRange: '',
-    diningStyle: '',
-    dietaryRestrictions: '',
+    cuisine_type: '',
+    price_range: '',
+    dining_style: '',
+    dietary_restrictions: '',
     atmosphere: ''
   })
 
@@ -35,15 +38,23 @@ function Survey() {
     }
   }
 
-  const handleSubmit = () => {
-    // TODO: Save preferences to database
-    console.log('User preferences:', {
-      username: username,
-      ...preferences
-    })
+  const handleSubmit = async () => {
+    setLoading(true)
+    setError('')
 
-    alert('Preferences saved! Your profile is ready.')
-    // Later: navigate to dashboard or chatbot page
+    try {
+      const data = await savePreferences(preferences)
+      console.log('Preferences saved:', data)
+
+      alert('Preferences saved successfully! Your profile is ready.')
+      // Later: navigate to dashboard or chatbot page
+      // For now, stay on the page or navigate to a success page
+    } catch (err) {
+      console.error('Error saving preferences:', err)
+      setError(err.message || 'Failed to save preferences. Please try again.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const renderStep = () => {
@@ -58,10 +69,10 @@ function Survey() {
                   <input
                     type="radio"
                     id={option}
-                    name="cuisineType"
+                    name="cuisine_type"
                     value={option}
-                    checked={preferences.cuisineType === option}
-                    onChange={() => handleChange('cuisineType', option)}
+                    checked={preferences.cuisine_type === option}
+                    onChange={() => handleChange('cuisine_type', option)}
                   />
                   <label htmlFor={option}>{option}</label>
                 </div>
@@ -85,10 +96,10 @@ function Survey() {
                   <input
                     type="radio"
                     id={option.value}
-                    name="priceRange"
+                    name="price_range"
                     value={option.value}
-                    checked={preferences.priceRange === option.value}
-                    onChange={() => handleChange('priceRange', option.value)}
+                    checked={preferences.price_range === option.value}
+                    onChange={() => handleChange('price_range', option.value)}
                   />
                   <label htmlFor={option.value}>{option.label}</label>
                 </div>
@@ -112,10 +123,10 @@ function Survey() {
                   <input
                     type="radio"
                     id={option.value}
-                    name="diningStyle"
+                    name="dining_style"
                     value={option.value}
-                    checked={preferences.diningStyle === option.value}
-                    onChange={() => handleChange('diningStyle', option.value)}
+                    checked={preferences.dining_style === option.value}
+                    onChange={() => handleChange('dining_style', option.value)}
                   />
                   <label htmlFor={option.value}>{option.label}</label>
                 </div>
@@ -141,10 +152,10 @@ function Survey() {
                   <input
                     type="radio"
                     id={option}
-                    name="dietaryRestrictions"
+                    name="dietary_restrictions"
                     value={option}
-                    checked={preferences.dietaryRestrictions === option}
-                    onChange={() => handleChange('dietaryRestrictions', option)}
+                    checked={preferences.dietary_restrictions === option}
+                    onChange={() => handleChange('dietary_restrictions', option)}
                   />
                   <label htmlFor={option}>{option}</label>
                 </div>
@@ -189,7 +200,7 @@ function Survey() {
   return (
     <div className="container">
       <div className="survey-container">
-        <h2>Tell us about your preferences, {username}!</h2>
+        <h2>Tell us about your preferences, {currentUser?.username || 'there'}!</h2>
 
         <div className="progress-bar">
           <div
@@ -202,25 +213,48 @@ function Survey() {
           Step {currentStep} of {totalSteps}
         </p>
 
+        {error && (
+          <div style={{
+            padding: '12px',
+            marginBottom: '20px',
+            backgroundColor: '#fee',
+            color: '#c33',
+            borderRadius: '6px',
+            fontSize: '14px'
+          }}>
+            {error}
+          </div>
+        )}
+
         {renderStep()}
 
         <div className="button-group">
           <button
             onClick={handlePrevious}
             className="btn-secondary"
-            disabled={currentStep === 1}
+            disabled={currentStep === 1 || loading}
             style={{ opacity: currentStep === 1 ? 0.5 : 1 }}
           >
             Previous
           </button>
 
           {currentStep < totalSteps ? (
-            <button onClick={handleNext} className="btn-primary" style={{ width: 'auto', padding: '10px 24px' }}>
+            <button
+              onClick={handleNext}
+              className="btn-primary"
+              style={{ width: 'auto', padding: '10px 24px' }}
+              disabled={loading}
+            >
               Next
             </button>
           ) : (
-            <button onClick={handleSubmit} className="btn-primary" style={{ width: 'auto', padding: '10px 24px' }}>
-              Complete Profile
+            <button
+              onClick={handleSubmit}
+              className="btn-primary"
+              style={{ width: 'auto', padding: '10px 24px' }}
+              disabled={loading}
+            >
+              {loading ? 'Saving...' : 'Complete Profile'}
             </button>
           )}
         </div>

@@ -4,167 +4,296 @@ A niche-based restaurant recommendation system that uses user preferences to pro
 
 ## Project Overview
 
-KindaLike is a web application that collects detailed user preferences through an interactive survey and uses this information to recommend restaurants that match their taste. The system creates user profiles based on cuisine preferences, price range, dining style, dietary restrictions, and atmosphere preferences.
+KindaLike is a full-stack web application with a React frontend and Python (FastAPI) backend. It collects detailed user preferences through an interactive survey and stores them in a PostgreSQL database for personalized restaurant recommendations.
 
-## Features (Current Implementation)
+## Features
 
 ### Frontend
 - **User Authentication**
-  - Login page with username and password
-  - Signup page with password confirmation
-  - Client-side form validation
+  - Signup and Login with JWT tokens
+  - Secure password handling
+  - Form validation
 
 - **Preference Survey**
   - Multi-step survey (5 categories)
-  - Clean, intuitive radio button interface
+  - Radio button interface
   - Progress tracking
-  - Categories covered:
-    - Cuisine Type (Italian, Chinese, Mexican, Indian, Japanese, American)
-    - Price Range (Budget, Moderate, Upscale, Fine Dining)
-    - Dining Style (Dine-in, Takeout, Delivery, No Preference)
-    - Dietary Restrictions (None, Vegetarian, Vegan, Gluten-Free, Halal, Kosher)
-    - Atmosphere (Casual, Romantic, Family-Friendly, Trendy, Quiet)
+  - Categories: Cuisine Type, Price Range, Dining Style, Dietary Restrictions, Atmosphere
 
 - **Modern UI**
   - Responsive design
   - Gradient styling with smooth animations
-  - Progress indicators
   - Mobile-friendly interface
+
+### Backend
+- **RESTful API** built with FastAPI
+- **PostgreSQL Database** with Docker
+- **JWT Authentication**
+- **Password Hashing** with bcrypt
+- **CORS enabled** for frontend communication
+- **Persistent data storage** using Docker volumes
+- **Poetry** for dependency management
 
 ## Tech Stack
 
-### Frontend
-- **React** - UI library
-- **Vite** - Build tool and dev server
-- **React Router** - Client-side routing
-- **CSS3** - Styling with gradients and animations
+**Frontend:**
+- React + Vite
+- React Router
+- CSS3
 
-### Current State (MVP)
-- User data temporarily stored in localStorage
-- No backend integration yet
-- No database persistence yet
+**Backend:**
+- Python 3.10+
+- FastAPI
+- PostgreSQL
+- psycopg2
+- bcrypt
+- JWT
+- Poetry (package manager)
+
+**Infrastructure:**
+- Docker & Docker Compose
+- Docker Volumes (persistent storage)
 
 ## Project Structure
 
 ```
 KindaLike/
-├── src/
+├── src/                      # Frontend React code
 │   ├── pages/
-│   │   ├── Login.jsx          # User login page
-│   │   ├── Signup.jsx         # User registration page
-│   │   └── Survey.jsx         # Multi-step preference survey
-│   ├── components/            # (Empty - for future components)
-│   ├── App.jsx               # Main app with routing
-│   ├── App.css               # Global styles
-│   └── main.jsx              # Application entry point
-├── index.html                # HTML template
-├── vite.config.js            # Vite configuration
-├── package.json              # Dependencies and scripts
-├── .gitignore               # Git exclusions
-└── README.md                # Project documentation
+│   │   ├── Login.jsx
+│   │   ├── Signup.jsx
+│   │   └── Survey.jsx
+│   ├── App.jsx
+│   ├── App.css
+│   └── main.jsx
+├── backend/                  # Python FastAPI backend
+│   ├── app/
+│   │   ├── routes/
+│   │   │   ├── auth.py      # Authentication endpoints
+│   │   │   └── preferences.py # Preferences endpoints
+│   │   ├── models/
+│   │   │   └── schemas.py   # Pydantic models
+│   │   ├── database.py      # PostgreSQL connection
+│   │   ├── utils.py         # Password hashing, JWT
+│   │   └── main.py          # FastAPI app
+│   ├── pyproject.toml       # Poetry configuration
+│   ├── poetry.lock          # Locked dependencies
+│   └── README.md            # Backend documentation
+├── database/
+│   └── init.sql            # Database schema
+├── docker-compose.yml       # PostgreSQL container config
+├── .env                     # Environment variables
+├── .env.example            # Environment template
+├── index.html
+├── vite.config.js
+└── package.json
 ```
 
 ## Getting Started
 
 ### Prerequisites
-- Node.js (v14 or higher)
+- Node.js (v14+)
+- Python 3.10+
+- Docker & Docker Compose
+- Poetry (Python package manager)
 - npm or yarn
 
 ### Installation
 
-1. Clone the repository:
+#### 1. Clone the repository
 ```bash
 git clone https://github.com/hemanjalireddy/KindaLike.git
 cd KindaLike
 ```
 
-2. Install dependencies:
+#### 2. Set up the Database
+
+Start PostgreSQL using Docker:
 ```bash
+docker-compose up -d
+```
+
+This creates:
+- PostgreSQL database named `kindalike`
+- Tables: `users` and `user_preferences`
+- Persistent volume for data storage
+
+To check database status:
+```bash
+docker-compose ps
+```
+
+#### 3. Set up the Backend
+
+**Install Poetry (if not already installed):**
+
+Windows (PowerShell):
+```powershell
+(Invoke-WebRequest -Uri https://install.python-poetry.org -UseBasicParsing).Content | py -
+```
+
+macOS/Linux:
+```bash
+curl -sSL https://install.python-poetry.org | python3 -
+```
+
+**Install Python dependencies:**
+```bash
+cd backend
+poetry install
+```
+
+Update `.env` if needed (default password: `kindalike123`):
+```env
+DB_USER=postgres
+DB_HOST=localhost
+DB_NAME=kindalike
+DB_PASSWORD=kindalike123
+DB_PORT=5432
+PORT=5000
+JWT_SECRET=kindalike_secret_key_2024
+```
+
+**Start the backend server:**
+```bash
+poetry run python -m app.main
+```
+
+Or activate the virtual environment first:
+```bash
+poetry shell
+python -m app.main
+```
+
+The API will be available at `http://localhost:5000`
+
+API Documentation: `http://localhost:5000/docs`
+
+#### 4. Set up the Frontend
+
+Install frontend dependencies:
+```bash
+# From project root
 npm install
 ```
 
-3. Start the development server:
+Start the frontend:
 ```bash
 npm run dev
 ```
 
-4. Open your browser and navigate to:
+The app will be available at `http://localhost:5173`
+
+## API Endpoints
+
+### Authentication
+- `POST /api/auth/signup` - Register new user
+- `POST /api/auth/login` - Login user
+
+### Preferences (requires authentication)
+- `POST /api/preferences/` - Create/update preferences
+- `GET /api/preferences/` - Get user preferences
+
+See `backend/README.md` for detailed API documentation.
+
+## Database Persistence
+
+Your data is stored in a Docker volume named `postgres_data`:
+
+✅ Data persists when container stops
+✅ Data persists after system restart
+✅ Data persists when container is recreated
+
+To remove data permanently:
+```bash
+docker-compose down -v
 ```
-http://localhost:5173
+
+## Development
+
+### Frontend Development
+```bash
+npm run dev          # Start dev server with hot reload
+npm run build        # Build for production
+npm run preview      # Preview production build
 ```
 
-### Available Scripts
+### Backend Development
+```bash
+cd backend
+poetry run python -m app.main   # Start with auto-reload
+```
 
-- `npm run dev` - Start development server
-- `npm run build` - Build for production
-- `npm run preview` - Preview production build
+Or:
+```bash
+cd backend
+poetry shell         # Activate virtual environment
+python -m app.main   # Run the server
+```
 
-## How It Works (Current Flow)
+### Poetry Commands
+```bash
+poetry install       # Install dependencies
+poetry add package   # Add new dependency
+poetry update        # Update dependencies
+poetry show          # Show installed packages
+poetry shell         # Activate virtual environment
+```
 
-1. **User Registration/Login**
-   - User creates an account or logs in
-   - Username is stored in localStorage (temporary)
+## How It Works
 
-2. **Preference Survey**
-   - User is redirected to a 5-step survey
-   - Each step collects one category of preferences
-   - Progress bar shows completion status
-   - User can navigate back and forth between steps
-
-3. **Profile Completion**
-   - All preferences are collected
-   - Data is logged to console (for now)
-   - Ready for backend integration
-
-## Future Implementation
-
-### Phase 2 - Backend Integration
-- [ ] Set up Node.js/Express backend
-- [ ] Implement database (MongoDB/PostgreSQL)
-- [ ] Create API endpoints for user authentication
-- [ ] Store user profiles in database
-- [ ] Implement secure password hashing
-
-### Phase 3 - Chatbot Service
-- [ ] Integrate AI/NLP service for chatbot
-- [ ] Connect chatbot to user preference data
-- [ ] Implement restaurant database/API
-- [ ] Build recommendation algorithm
-- [ ] Create chat interface
-
-### Phase 4 - Enhanced Features
-- [ ] User dashboard
-- [ ] Edit preferences
-- [ ] Restaurant favorites
-- [ ] Review system
-- [ ] Location-based recommendations
-
-## Current Limitations
-
-- **No Backend**: User data is not persisted
-- **No Authentication**: Login/signup don't verify credentials
-- **No Database**: All data is temporary (localStorage)
-- **No Chatbot**: Recommendation system not yet implemented
+1. **User Registration**: Creates account, password is hashed with bcrypt
+2. **User Login**: Validates credentials, returns JWT token
+3. **Survey**: User fills out preferences (5 steps)
+4. **Save Preferences**: Frontend sends preferences to backend with JWT
+5. **Database Storage**: Preferences saved to PostgreSQL
+6. **Persistence**: Data remains even after restart
 
 ## What to Push to GitHub
 
 **Include:**
-- All source code (`src/` folder)
-- Configuration files (`vite.config.js`, `package.json`)
-- HTML template (`index.html`)
-- Documentation (`README.md`)
-- `.gitignore` file
+- Source code (`src/`, `backend/`)
+- Configuration files (`pyproject.toml`, `poetry.lock`)
+- Documentation
+- `.gitignore`
+- `docker-compose.yml`
+- `.env.example` (template)
 
-**Exclude (already in .gitignore):**
-- `node_modules/` - Dependencies (can be installed via npm)
-- `dist/` - Build output
-- `.env` - Environment variables
-- Log files
-- Editor-specific files
+**Exclude (in .gitignore):**
+- `node_modules/`
+- `backend/.venv/`
+- `.env` (contains secrets!)
+- `__pycache__/`
+- `dist/`
 
-## Contributing
+## Future Enhancements
 
-This is a personal project, but suggestions and feedback are welcome!
+- [ ] Chatbot integration with AI/NLP
+- [ ] Restaurant database/API integration
+- [ ] Recommendation algorithm
+- [ ] User dashboard
+- [ ] Update preferences feature
+- [ ] Restaurant favorites
+- [ ] Location-based recommendations
+
+## Troubleshooting
+
+**Database won't start:**
+```bash
+docker-compose logs postgres
+```
+
+**Port conflicts:**
+Change ports in `docker-compose.yml` or `.env`
+
+**Backend can't connect to database:**
+Make sure Docker container is running: `docker-compose ps`
+
+**Poetry issues:**
+```bash
+poetry env remove python
+poetry install
+```
 
 ## License
 

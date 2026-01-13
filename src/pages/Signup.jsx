@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
+import { signup } from '../services/api'
 
 function Signup() {
   const navigate = useNavigate()
@@ -8,34 +9,46 @@ function Signup() {
     password: '',
     confirmPassword: ''
   })
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
 
   const handleChange = (e) => {
     setFormData({
       ...formData,
       [e.target.name]: e.target.value
     })
+    setError('') // Clear error when user types
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
+    setError('')
 
     // Validate passwords match
     if (formData.password !== formData.confirmPassword) {
-      alert('Passwords do not match!')
+      setError('Passwords do not match!')
       return
     }
 
-    // TODO: Add user registration logic here
-    console.log('Signup data:', {
-      username: formData.username,
-      password: formData.password
-    })
+    // Validate password length
+    if (formData.password.length < 6) {
+      setError('Password must be at least 6 characters long')
+      return
+    }
 
-    // For now, store username and navigate to survey
-    // Later, this will save to database
-    if (formData.username && formData.password) {
-      localStorage.setItem('username', formData.username)
+    setLoading(true)
+
+    try {
+      const data = await signup(formData.username, formData.password)
+      console.log('Signup successful:', data)
+      
+      // Navigate to survey after successful signup
       navigate('/survey')
+    } catch (err) {
+      console.error('Signup error:', err)
+      setError(err.message || 'Signup failed. Please try again.')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -43,6 +56,20 @@ function Signup() {
     <div className="container">
       <div className="form-container">
         <h2>Create Account</h2>
+
+        {error && (
+          <div style={{
+            padding: '12px',
+            marginBottom: '20px',
+            backgroundColor: '#fee',
+            color: '#c33',
+            borderRadius: '6px',
+            fontSize: '14px'
+          }}>
+            {error}
+          </div>
+        )}
+
         <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label htmlFor="username">Username</label>
@@ -54,6 +81,8 @@ function Signup() {
               onChange={handleChange}
               placeholder="Choose a username"
               required
+              minLength={3}
+              disabled={loading}
             />
           </div>
 
@@ -65,8 +94,10 @@ function Signup() {
               name="password"
               value={formData.password}
               onChange={handleChange}
-              placeholder="Create a password"
+              placeholder="Create a password (min 6 characters)"
               required
+              minLength={6}
+              disabled={loading}
             />
           </div>
 
@@ -80,11 +111,12 @@ function Signup() {
               onChange={handleChange}
               placeholder="Confirm your password"
               required
+              disabled={loading}
             />
           </div>
 
-          <button type="submit" className="btn-primary">
-            Sign Up
+          <button type="submit" className="btn-primary" disabled={loading}>
+            {loading ? 'Creating Account...' : 'Sign Up'}
           </button>
         </form>
 
