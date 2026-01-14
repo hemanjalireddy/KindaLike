@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import auth, preferences
+from app.routes import auth, preferences, chatbot
 import os
 from dotenv import load_dotenv
 
@@ -24,6 +24,7 @@ app.add_middleware(
 # Include routers
 app.include_router(auth.router)
 app.include_router(preferences.router)
+app.include_router(chatbot.router)
 
 @app.get("/")
 async def root():

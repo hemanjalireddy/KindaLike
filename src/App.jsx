@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Login from './pages/Login'
 import Signup from './pages/Signup'
 import Survey from './pages/Survey'
+import Chatbot from './pages/Chatbot'
 
 function App() {
   return (
@@ -11,6 +12,7 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/survey" element={<Survey />} />
+        <Route path="/chatbot" element={<Chatbot />} />
       </Routes>
     </Router>
   )

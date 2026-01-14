@@ -40,3 +40,21 @@ def decode_access_token(token: str) -> dict:
         raise Exception("Token has expired")
     except jwt.InvalidTokenError:
         raise Exception("Invalid token")
+
+def get_current_user(authorization: str = None) -> int:
+    """Extract user ID from Authorization header"""
+    if not authorization:
+        raise Exception("Missing authorization header")
+
+    # Authorization header format: "Bearer <token>"
+    try:
+        scheme, token = authorization.split()
+        if scheme.lower() != 'bearer':
+            raise Exception("Invalid authentication scheme")
+
+        payload = decode_access_token(token)
+        return payload['user_id']
+    except ValueError:
+        raise Exception("Invalid authorization header format")
+    except Exception as e:
+        raise Exception(f"Authentication failed: {str(e)}")

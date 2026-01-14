@@ -46,9 +46,8 @@ function Survey() {
       const data = await savePreferences(preferences)
       console.log('Preferences saved:', data)
 
-      alert('Preferences saved successfully! Your profile is ready.')
-      // Later: navigate to dashboard or chatbot page
-      // For now, stay on the page or navigate to a success page
+      // Navigate to chatbot page
+      navigate('/chatbot')
     } catch (err) {
       console.error('Error saving preferences:', err)
       setError(err.message || 'Failed to save preferences. Please try again.')
