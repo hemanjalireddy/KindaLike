@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { login } from '../services/api'
+import { login, getPreferences } from '../services/api'
 
 function Login() {
   const navigate = useNavigate()
@@ -27,9 +27,16 @@ function Login() {
     try {
       const data = await login(formData.username, formData.password)
       console.log('Login successful:', data)
-      
-      // Navigate to survey after successful login
-      navigate('/survey')
+
+      // Check if user already has preferences
+      try {
+        await getPreferences()
+        // User has preferences, go directly to chatbot
+        navigate('/chatbot')
+      } catch {
+        // No preferences found, go to survey
+        navigate('/survey')
+      }
     } catch (err) {
       console.error('Login error:', err)
       setError(err.message || 'Login failed. Please check your credentials.')
