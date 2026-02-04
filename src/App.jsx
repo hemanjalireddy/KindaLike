@@ -1,7 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
-import Survey from './pages/Survey'
+import Onboarding from './pages/Onboarding'
 import Chatbot from './pages/Chatbot'
 
 function App() {
@@ -11,7 +11,7 @@ function App() {
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
-        <Route path="/survey" element={<Survey />} />
+        <Route path="/survey" element={<Onboarding />} />
         <Route path="/chatbot" element={<Chatbot />} />
       </Routes>
     </Router>

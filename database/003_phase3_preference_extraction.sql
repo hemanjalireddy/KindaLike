@@ -2,6 +2,7 @@
 -- 0. PRE-REQUISITES (Functions & Users)
 -- ============================================
 
+-- Ensure the update timestamp function exists
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -10,16 +11,17 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
--- Create users table (Essential for Foreign Keys)
-CREATE TABLE IF NOT EXISTS users (
-    id SERIAL PRIMARY KEY,
-    username VARCHAR(50) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+-- (Assuming 'users' table already exists from Auth module. 
+-- If not, uncomment the lines below to create a minimal one)
+-- CREATE TABLE IF NOT EXISTS users (
+--     id SERIAL PRIMARY KEY,
+--     email VARCHAR(255) UNIQUE NOT NULL,
+--     password_hash VARCHAR(255) NOT NULL,
+--     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+-- );
 
 -- ============================================
--- 1. CHATBOT TABLES
+-- 1. CHATBOT TABLES (Required for Chatbot.py)
 -- ============================================
 DROP TABLE IF EXISTS chat_messages CASCADE;
 DROP TABLE IF EXISTS chat_sessions CASCADE;
@@ -28,8 +30,7 @@ CREATE TABLE chat_sessions (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    is_active BOOLEAN DEFAULT TRUE -- Added for session management
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE chat_messages (
@@ -37,15 +38,11 @@ CREATE TABLE chat_messages (
     session_id INTEGER REFERENCES chat_sessions(id) ON DELETE CASCADE,
     role VARCHAR(20) NOT NULL, -- 'user' or 'assistant'
     content TEXT NOT NULL,
-    
-    -- FUTURE-PROOFING: Stores Yelp JSON data for UI cards
-    recommendations JSONB, 
-    
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================
--- 2. PHASE 3 PREFERENCE TABLES
+-- 2. PHASE 3 PREFERENCE TABLES (Your Code)
 -- ============================================
 
 -- A. Restaurants (Cache)
@@ -53,7 +50,7 @@ CREATE TABLE IF NOT EXISTS restaurants (
     id SERIAL PRIMARY KEY,
     yelp_id VARCHAR(100) UNIQUE,
     google_place_id VARCHAR(100) UNIQUE,
-    name VARCHAR(255) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
     address VARCHAR(500),
     city VARCHAR(100),
     state VARCHAR(50),
@@ -90,7 +87,7 @@ CREATE TABLE user_initial_restaurants (
     CONSTRAINT unique_user_restaurant UNIQUE(user_id, restaurant_id)
 );
 
--- C. User Preferences (Matches your Python code)
+-- C. User Preferences (The Core Engine)
 DROP TABLE IF EXISTS user_preferences CASCADE;
 CREATE TABLE user_preferences (
     id SERIAL PRIMARY KEY,
@@ -109,7 +106,7 @@ CREATE TABLE user_preferences (
     CONSTRAINT unique_user_preference UNIQUE(user_id, category, subcategory)
 );
 
--- D. Analysis Logs
+-- D. Analysis Logs (Debugging & History)
 DROP TABLE IF EXISTS preference_analyses CASCADE;
 CREATE TABLE preference_analyses (
     id SERIAL PRIMARY KEY,
@@ -161,13 +158,14 @@ CREATE TRIGGER update_chat_sessions_updated_at
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================
--- 4. DUMMY DATA 
+-- 4. DUMMY DATA (To prevent empty UI crashes)
 -- ============================================
+-- Ensure we have a user (ID 1)
 INSERT INTO users (username, password_hash)
 VALUES ('testuser', 'hashedpassword')
 ON CONFLICT DO NOTHING;
 
--- Basic preferences to test your Python code immediately
+-- Insert basic preferences for User 1
 INSERT INTO user_preferences (user_id, category, subcategory, value_text, confidence_score)
 VALUES 
 (1, 'cuisine', NULL, 'Thai', 0.9),

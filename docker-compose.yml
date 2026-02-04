@@ -14,7 +14,10 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./database/init.sql:/docker-entrypoint-initdb.d/01_init.sql
+      - ./database/002_add_chat_tables.sql:/docker-entrypoint-initdb.d/02_chat.sql
+      - ./database/003_phase3_preference_extraction.sql:/docker-entrypoint-initdb.d/03_phase3.sql
+      - ./database/004_fix_processing_status_length.sql:/docker-entrypoint-initdb.d/04_fix_status.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -39,10 +42,12 @@ services:
       PORT: 5000
       JWT_SECRET: kindalike_secret_key_2024
       YELP_API_KEY: ${YELP_API_KEY}
+      OPENAI_API_KEY: ${LITELLM_API_KEY}
       LITELLM_API_KEY: ${LITELLM_API_KEY}
       LITELLM_BASE_URL: ${LITELLM_BASE_URL}
       LITELLM_MODEL: ${LITELLM_MODEL}
       IPAPI_KEY: ${IPAPI_KEY}
+      GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY}
     ports:
       - "5000:5000"
     depends_on:

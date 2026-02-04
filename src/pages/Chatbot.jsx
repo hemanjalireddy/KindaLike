@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { sendChatMessage, getChatSessions, getSessionMessages } from '../services/api'
+import { sendChatMessage, getChatSessions, getSessionMessages, createNewSession } from '../services/api'
 import '../styles/Chatbot.css'
 
 export default function Chatbot() {
@@ -14,6 +14,11 @@ export default function Chatbot() {
   const [sessionId, setSessionId] = useState(null)
   const [location, setLocation] = useState('')
 
+  // Session management state
+  const [sessions, setSessions] = useState([])
+  const [showSessionDropdown, setShowSessionDropdown] = useState(false)
+  const [sessionsLoading, setSessionsLoading] = useState(false)
+
   // Auto-scroll to bottom when new messages arrive
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -23,13 +28,65 @@ export default function Chatbot() {
     scrollToBottom()
   }, [messages])
 
-  // Check if user is logged in
+  // Check if user is logged in and load sessions
   useEffect(() => {
     const token = localStorage.getItem('token')
     if (!token) {
       navigate('/login')
+    } else {
+      loadSessions()
     }
   }, [navigate])
+
+  // Load chat sessions
+  const loadSessions = async () => {
+    setSessionsLoading(true)
+    try {
+      const data = await getChatSessions()
+      setSessions(data)
+      // If there's an active session, load its messages
+      if (data.length > 0 && !sessionId) {
+        const latestSession = data[0]
+        setSessionId(latestSession.id)
+        loadSessionMessages(latestSession.id)
+      }
+    } catch (err) {
+      console.error('Failed to load sessions:', err)
+    } finally {
+      setSessionsLoading(false)
+    }
+  }
+
+  // Load messages for a session
+  const loadSessionMessages = async (sid) => {
+    try {
+      const data = await getSessionMessages(sid)
+      setMessages(data)
+    } catch (err) {
+      console.error('Failed to load messages:', err)
+    }
+  }
+
+  // Switch to a different session
+  const handleSwitchSession = async (sid) => {
+    setSessionId(sid)
+    setMessages([])
+    setShowSessionDropdown(false)
+    await loadSessionMessages(sid)
+  }
+
+  // Create a new session
+  const handleCreateNewSession = async () => {
+    try {
+      const newSession = await createNewSession()
+      setSessionId(newSession.id)
+      setMessages([])
+      setSessions([newSession, ...sessions])
+      setShowSessionDropdown(false)
+    } catch (err) {
+      setError('Failed to create new session')
+    }
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -80,10 +137,20 @@ export default function Chatbot() {
     }
   }
 
-  const handleNewChat = () => {
-    setMessages([])
-    setSessionId(null)
+  const handleNewChat = async () => {
+    await handleCreateNewSession()
     setError('')
+  }
+
+  // Format session date
+  const formatSessionDate = (dateStr) => {
+    const date = new Date(dateStr)
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    })
   }
 
   const handleLogout = () => {
@@ -99,9 +166,40 @@ export default function Chatbot() {
           <p className="subtitle">Ask me for restaurant recommendations!</p>
         </div>
         <div className="header-actions">
+          {/* Session Selector */}
+          <div className="session-selector">
+            <button
+              className="session-toggle-btn"
+              onClick={() => setShowSessionDropdown(!showSessionDropdown)}
+            >
+              {sessionsLoading ? 'Loading...' : `Chat ${sessionId ? `#${sessionId}` : ''}`} ▼
+            </button>
+            {showSessionDropdown && (
+              <div className="session-dropdown">
+                <button onClick={handleCreateNewSession} className="new-session-btn">
+                  + New Chat
+                </button>
+                <div className="session-list">
+                  {sessions.map((session) => (
+                    <button
+                      key={session.id}
+                      className={`session-item ${session.id === sessionId ? 'active' : ''}`}
+                      onClick={() => handleSwitchSession(session.id)}
+                    >
+                      <span className="session-date">{formatSessionDate(session.started_at)}</span>
+                      <span className="session-msgs">{session.message_count || 0} msgs</span>
+                    </button>
+                  ))}
+                  {sessions.length === 0 && (
+                    <p className="no-sessions">No previous chats</p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
           <input
             type="text"
-            placeholder="Override location (e.g., Ithaca, NY)"
+            placeholder="Location (e.g., Ithaca, NY)"
             value={location}
             onChange={(e) => setLocation(e.target.value)}
             className="location-input"

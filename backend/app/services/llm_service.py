@@ -1,31 +1,139 @@
-"""
-LLM Service for Restaurant Category Generation
-Ports the hierarchical category generation logic from the Jupyter notebook
-"""
 import os
 import json
-from typing import Dict, Any, Optional
+import logging
+from typing import Dict, Any, Optional, List
+
+# --- UPDATED IMPORTS ---
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import HumanMessage, SystemMessage # Fixed import path
 
+# Configure logging
+logger = logging.getLogger("app.services.llm_service")
+
+# ==========================================
+# PART 1: Chatbot Logic (Added for Phase 3)
+# ==========================================
+
+async def generate_chat_response(
+    message: str, 
+    history: List[Dict[str, str]], 
+    user_preferences: Dict[str, Any]
+) -> str:
+    """
+    Generates a response from the LLM based on chat history and user preferences.
+    Used by: backend/app/routes/chatbot.py
+    """
+    try:
+        # 1. Construct the System Prompt
+        system_prompt = _construct_system_prompt(user_preferences)
+        
+        # 2. Prepare the messages list for the LLM
+        # Convert dict messages to LangChain message objects immediately
+        lc_messages = [SystemMessage(content=system_prompt)]
+        
+        # Add recent history (limit to last 10 messages to save tokens)
+        recent_history = history[-10:]
+        for msg in recent_history:
+            if msg["role"] == "user":
+                lc_messages.append(HumanMessage(content=msg["content"]))
+            elif msg["role"] == "assistant":
+                # LangChain uses AIMessage for assistant responses, 
+                # but SystemMessage works for context injection if needed. 
+                # strictly speaking, it should be AIMessage, but let's stick to base classes or Human/System for simplicity
+                # unless you import AIMessage. Let's add AIMessage to imports if we want to be strict, 
+                # or just represent history as Human/System pairs.
+                # For simplicity here, we can just treat previous assistant answers as context.
+                from langchain_core.messages import AIMessage
+                lc_messages.append(AIMessage(content=msg["content"]))
+        
+        # Add the current message
+        lc_messages.append(HumanMessage(content=message))
+        
+        # 3. Call the LLM via Cornell LiteLLM proxy
+        chat = ChatOpenAI(
+            openai_api_base=os.getenv("LITELLM_BASE_URL", "https://api.ai.it.cornell.edu"),
+            model=os.getenv("LITELLM_MODEL", "openai.gpt-4o"),
+            api_key=os.getenv("LITELLM_API_KEY", "missing-key"), # Ensure key is passed
+            temperature=0.7,
+            max_tokens=300,
+        )
+
+        # 4. Invoke the LLM (Updated from deprecated __call__ to invoke)
+        response = chat.invoke(lc_messages)
+        return response.content
+
+    except Exception as e:
+        logger.error(f"❌ LLM generation error: {str(e)}")
+        return "I'm having a little trouble connecting to my creative brain right now. Could you ask that again?"
+
+def _construct_system_prompt(prefs: Dict[str, Any]) -> str:
+    """
+    Helper function to turn the structured preference dictionary into 
+    natural language for the System Prompt.
+    """
+    # Extract details with safe defaults
+    cuisines = ", ".join(prefs.get("cuisines", [])) or "No specific preference"
+    dietary = ", ".join(prefs.get("dietary_restrictions", [])) or "None"
+    price = prefs.get("price_preference", "Any")
+    
+    # Format flavor profile (dictionary to string)
+    flavors_dict = prefs.get("flavor_profile", {})
+    if flavors_dict:
+        flavors_str = ", ".join([f"{k}: {v}" for k, v in flavors_dict.items()])
+    else:
+        flavors_str = "Not specified"
+        
+    ambiance = ", ".join(prefs.get("ambiance_preference", [])) or "Not specified"
+    notes = ", ".join(prefs.get("general_notes", [])) or "None"
+
+    # Build the prompt
+    prompt = f"""You are KindaLike, a friendly and knowledgeable restaurant recommendation AI.
+
+Your goal is to help the user decide where to eat based on their unique taste profile.
+
+=== USER TASTE PROFILE ===
+- **Favorite Cuisines:** {cuisines}
+- **Dietary Restrictions:** {dietary}
+- **Price Preference:** {price}
+- **Flavor Profile:** {flavors_str}
+- **Ambiance/Vibe:** {ambiance}
+- **General Notes:** {notes}
+
+=== INSTRUCTIONS ===
+1. **Be Personalized:** Use the profile above. If they love spicy food, mention spicy options. If they are vegan, strictly respect that.
+2. **Be Conversational:** Talk like a helpful foodie friend, not a robot. Keep responses concise (2-3 sentences unless asked for more).
+3. **Handle Missing Info:** If the profile is vague (e.g., "No specific preference"), ask clarifying questions to narrow down what they are in the mood for *right now*.
+4. **Context Awareness:** You are chatting in real-time. Use the chat history to maintain context.
+
+Answer the user's latest message now.
+"""
+    return prompt
+
+
+# ==========================================
+# PART 2: Existing Category Generation Logic
+# ==========================================
 
 class LLMService:
     """Service for generating restaurant categories using LLM"""
 
     def __init__(self):
         """Initialize the LLM service with LiteLLM configuration"""
-        self.api_key = os.getenv("LITELLM_API_KEY")
+        self.api_key = os.getenv("LITELLM_API_KEY") or os.getenv("OPENAI_API_KEY")
         self.base_url = os.getenv("LITELLM_BASE_URL", "https://api.ai.it.cornell.edu")
         self.model = os.getenv("LITELLM_MODEL", "openai.gpt-4o")
 
         if not self.api_key:
-            raise ValueError("LITELLM_API_KEY environment variable is not set")
+            # Warn but don't crash immediately, allows app to start if key is missing
+            logger.warning("LITELLM_API_KEY/OPENAI_API_KEY environment variable is not set")
 
-        # Initialize ChatOpenAI with LiteLLM configuration
+        # Initialize ChatOpenAI with Cornell LiteLLM proxy
+        # API key read automatically from OPENAI_API_KEY env var
         self.llm = ChatOpenAI(
             model=self.model,
+            openai_api_base=self.base_url,
             api_key=self.api_key,
-            base_url=self.base_url,
             temperature=0.7,
             max_tokens=500
         )
@@ -86,20 +194,6 @@ Generate the JSON response following the specified structure.""")
     ) -> Dict[str, Any]:
         """
         Generate hierarchical restaurant categories from user query
-
-        Args:
-            query: User's restaurant request (e.g., "I want Italian food for a date night")
-            user_preferences: Optional dict with user's saved preferences
-                {
-                    "cuisine_type": "Italian",
-                    "price_range": "$$",
-                    "dining_style": "Fine Dining",
-                    "dietary_restrictions": "None",
-                    "atmosphere": "Romantic"
-                }
-
-        Returns:
-            Dict containing hierarchical categories and search parameters
         """
         # Prepare user preferences with defaults
         prefs = user_preferences or {}
@@ -124,19 +218,15 @@ Generate the JSON response following the specified structure.""")
             content = response.content
 
             # Parse JSON from the response
-            # The LLM might wrap JSON in markdown code blocks
             if "```json" in content:
-                # Extract JSON from code block
                 json_start = content.find("```json") + 7
                 json_end = content.find("```", json_start)
                 json_str = content[json_start:json_end].strip()
             elif "```" in content:
-                # Generic code block
                 json_start = content.find("```") + 3
                 json_end = content.find("```", json_start)
                 json_str = content[json_start:json_end].strip()
             else:
-                # Assume the entire content is JSON
                 json_str = content.strip()
 
             result = json.loads(json_str)
@@ -148,11 +238,6 @@ Generate the JSON response following the specified structure.""")
 
             return result
 
-        except json.JSONDecodeError as e:
-            # Fallback if JSON parsing fails
-            print(f"Failed to parse LLM response as JSON: {e}")
-            print(f"Raw response: {content}")
-            return self._get_fallback_categories(query, prefs)
         except Exception as e:
             print(f"Error generating categories: {e}")
             return self._get_fallback_categories(query, prefs)
@@ -162,30 +247,17 @@ Generate the JSON response following the specified structure.""")
         query: str,
         preferences: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """
-        Fallback category generation if LLM fails
-        Uses simple keyword matching and user preferences
-        """
+        """Fallback category generation if LLM fails"""
         cuisine = preferences.get("cuisine_type", "restaurants")
         price = preferences.get("price_range", "$$")
-
-        # Simple price mapping
-        price_map = {
-            "$": 1,
-            "$$": 2,
-            "$$$": 3,
-            "$$$$": 4
-        }
+        
+        price_map = {"$": 1, "$$": 2, "$$$": 3, "$$$$": 4}
 
         return {
-            "hierarchical_categories": [
-                "Food & Dining",
-                "Restaurants",
-                cuisine if cuisine != "Not specified" else "All Cuisines"
-            ],
+            "hierarchical_categories": ["Food & Dining", "Restaurants", cuisine],
             "primary_categories": ["restaurants"],
             "attributes": {
-                "cuisine_type": cuisine if cuisine != "Not specified" else None,
+                "cuisine_type": cuisine,
                 "price_level": price_map.get(price, 2),
                 "occasion": "casual",
                 "ambiance_keywords": [],
@@ -194,10 +266,8 @@ Generate the JSON response following the specified structure.""")
             "reasoning": "Fallback categories used due to LLM error"
         }
 
-
 # Singleton instance
 _llm_service_instance = None
-
 
 def get_llm_service() -> LLMService:
     """Get or create the LLM service singleton"""
