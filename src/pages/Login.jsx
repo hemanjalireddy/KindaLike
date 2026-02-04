@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { login, getPreferences } from '../services/api'
+import { login, getPreferenceProfile } from '../services/api'
 
 function Login() {
   const navigate = useNavigate()
@@ -28,13 +28,20 @@ function Login() {
       const data = await login(formData.username, formData.password)
       console.log('Login successful:', data)
 
-      // Check if user already has preferences
+      // Check if user has completed onboarding
       try {
-        await getPreferences()
-        // User has preferences, go directly to chatbot
-        navigate('/chatbot')
+        const profile = await getPreferenceProfile()
+        // If user has preferences or extraction is completed, go to chatbot
+        if (profile.preferences && profile.preferences.length > 0) {
+          navigate('/chatbot')
+        } else if (profile.extraction_status === 'completed') {
+          navigate('/chatbot')
+        } else {
+          // No preferences, go to onboarding
+          navigate('/survey')
+        }
       } catch {
-        // No preferences found, go to survey
+        // No profile found, go to onboarding
         navigate('/survey')
       }
     } catch (err) {

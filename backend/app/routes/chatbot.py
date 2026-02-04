@@ -1,356 +1,271 @@
-"""
-Chatbot API endpoints for restaurant recommendations
-"""
-from fastapi import APIRouter, Header, Request, HTTPException
-from typing import Optional, List
+from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel
+from typing import List, Optional, Dict, Any
+from app.database import get_db_connection
+from app.services.llm_service import generate_chat_response
+import logging
+from datetime import datetime
 import json
-from loguru import logger
 
-from ..database import get_db_connection
-from ..utils import get_current_user
-from ..services.llm_service import get_llm_service
-from ..services.yelp_service import get_yelp_service
-from ..services.location_service import get_location_service
+# Configure logging
+logger = logging.getLogger("app.routes.chatbot")
 
+# Create the router instance
+router = APIRouter()
 
-router = APIRouter(prefix="/api/chat", tags=["chatbot"])
-
-
-# Request/Response Models
-class ChatMessageRequest(BaseModel):
-    """Request body for sending a chat message"""
+# --- Pydantic Models ---
+class ChatMessage(BaseModel):
     message: str
     session_id: Optional[int] = None
-    location: Optional[str] = None  # Optional manual location override
 
-
-class ChatMessageResponse(BaseModel):
-    """Response for a chat message"""
-    session_id: int
-    message_id: int
+class ChatResponse(BaseModel):
     response: str
-    recommendations: Optional[List[dict]] = None
+    session_id: int
 
+class SessionInfo(BaseModel):
+    id: Optional[int] = None
+    session_id: int
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    last_message: Optional[str] = None
+    message_count: Optional[int] = 0
 
-class ChatSessionResponse(BaseModel):
-    """Response for a chat session"""
-    id: int
-    started_at: str
-    last_message_at: str
-    is_active: bool
-    message_count: int
+# --- Routes ---
 
-
-@router.post("/message", response_model=ChatMessageResponse)
-async def send_chat_message(
-    request: Request,
-    chat_request: ChatMessageRequest,
-    authorization: Optional[str] = Header(None)
-):
+@router.get("/sessions", response_model=List[SessionInfo])
+async def get_chat_sessions(authorization: Optional[str] = Header(None)):
     """
-    Send a chat message and get restaurant recommendations
-
-    Flow:
-    1. Get user ID from JWT token
-    2. Get or create chat session
-    3. Detect user location from IP (if not provided)
-    4. Get user preferences from database
-    5. Use LLM to generate search categories
-    6. Search Yelp API for restaurants
-    7. Save user message and assistant response to database
-    8. Return recommendations
+    Retrieve all chat sessions for the authenticated user.
     """
-    logger.info("=" * 80)
-    logger.info(f"📨 Received chat message: '{chat_request.message}'")
-
-    # Authenticate user
-    user_id = get_current_user(authorization)
-    logger.info(f"✅ User authenticated: user_id={user_id}")
-
+    # In production, use authorization to get the real user_id
+    user_id = 1 
+    
     conn = get_db_connection()
-    cursor = conn.cursor()
-
+    cur = conn.cursor()
+    
     try:
-        # Step 1: Get or create chat session
-        logger.info("🔄 Step 1: Getting or creating chat session...")
-        if chat_request.session_id:
-            # Use existing session
-            cursor.execute(
-                "SELECT id FROM chat_sessions WHERE id = %s AND user_id = %s AND is_active = TRUE",
-                (chat_request.session_id, user_id)
-            )
-            session = cursor.fetchone()
-            if not session:
-                raise HTTPException(status_code=404, detail="Chat session not found or inactive")
-            session_id = session['id']
-        else:
-            # Create new session
-            cursor.execute(
-                "INSERT INTO chat_sessions (user_id) VALUES (%s) RETURNING id",
-                (user_id,)
-            )
-            session_id = cursor.fetchone()['id']
-            conn.commit()
+        # Get sessions with their last message preview
+        cur.execute("""
+            SELECT cs.id, cs.created_at,
+                   (SELECT content FROM chat_messages cm WHERE cm.session_id = cs.id ORDER BY cm.created_at DESC LIMIT 1) as last_message,
+                   (SELECT COUNT(*) FROM chat_messages cm WHERE cm.session_id = cs.id) as message_count
+            FROM chat_sessions cs
+            WHERE cs.user_id = %s
+            ORDER BY cs.updated_at DESC
+        """, (user_id,))
 
-        logger.info(f"✅ Using session_id={session_id}")
-
-        # Step 2: Get user preferences
-        logger.info("🔄 Step 2: Fetching user preferences...")
-        cursor.execute(
-            "SELECT cuisine_type, price_range, dining_style, dietary_restrictions, atmosphere FROM user_preferences WHERE user_id = %s",
-            (user_id,)
-        )
-        prefs_row = cursor.fetchone()
-        user_preferences = dict(prefs_row) if prefs_row else {}
-        logger.info(f"✅ User preferences: {user_preferences}")
-
-        # Step 3: Detect location
-        logger.info("🔄 Step 3: Detecting location...")
-        location = chat_request.location
-        if not location:
-            # Get location from IP
-            location_service = get_location_service()
-
-            # Extract IP from request headers
-            client_ip = location_service.extract_ip_from_request(dict(request.headers))
-
-            # Get location info
-            location_info = location_service.get_location_from_ip(client_ip)
-            location = location_info.get("formatted_location", "Ithaca, NY")
-
-        logger.info(f"✅ Using location: {location}")
-
-        # Step 4: Save user message to database
-        logger.info("🔄 Step 4: Saving user message to database...")
-        cursor.execute(
-            "INSERT INTO chat_messages (session_id, role, content) VALUES (%s, %s, %s) RETURNING id",
-            (session_id, "user", chat_request.message)
-        )
-        user_message_id = cursor.fetchone()['id']
-        conn.commit()
-        logger.info(f"✅ User message saved with id={user_message_id}")
-
-        # Step 5: Generate categories with LLM
-        logger.info("🔄 Step 5: Generating categories with LLM...")
-        llm_service = get_llm_service()
-        llm_result = llm_service.generate_categories(
-            query=chat_request.message,
-            user_preferences=user_preferences
-        )
-        logger.info(f"✅ LLM generated categories: {json.dumps(llm_result, indent=2)}")
-
-        # Step 6: Search Yelp for restaurants
-        logger.info("🔄 Step 6: Searching Yelp for restaurants...")
-        yelp_service = get_yelp_service()
-        yelp_results = yelp_service.search_with_llm_params(
-            location=location,
-            llm_categories=llm_result,
-            user_preferences=user_preferences,
-            limit=5  # Return top 5 recommendations
-        )
-        logger.info(f"✅ Yelp returned {len(yelp_results.get('businesses', []))} results")
-        logger.debug(f"Yelp raw results: {json.dumps(yelp_results, indent=2)}")
-
-        # Step 7: Format recommendations
-        logger.info("🔄 Step 7: Formatting recommendations...")
-        recommendations = []
-        if "businesses" in yelp_results and yelp_results["businesses"]:
-            for business in yelp_results["businesses"]:
-                formatted = yelp_service.format_restaurant_for_display(business)
-                recommendations.append(formatted)
-
-        logger.info(f"✅ Formatted {len(recommendations)} recommendations")
-
-        # Step 8: Generate response message
-        logger.info("🔄 Step 8: Generating response message...")
-        if recommendations:
-            response_text = f"Based on your request for '{chat_request.message}' in {location}, here are my top recommendations:"
-        else:
-            response_text = f"I couldn't find any restaurants matching '{chat_request.message}' in {location}. Try adjusting your search or location."
-
-        logger.info(f"✅ Response: {response_text}")
-
-        # Step 9: Save assistant response to database
-        logger.info("🔄 Step 9: Saving assistant response to database...")
-        cursor.execute(
-            """INSERT INTO chat_messages (session_id, role, content, recommendations)
-               VALUES (%s, %s, %s, %s) RETURNING id""",
-            (session_id, "assistant", response_text, json.dumps(recommendations) if recommendations else None)
-        )
-        assistant_message_id = cursor.fetchone()['id']
-        conn.commit()
-        logger.info(f"✅ Assistant response saved with id={assistant_message_id}")
-
-        logger.info("🎉 Chat request completed successfully!")
-        logger.info("=" * 80)
-
-        return ChatMessageResponse(
-            session_id=session_id,
-            message_id=assistant_message_id,
-            response=response_text,
-            recommendations=recommendations
-        )
-
+        sessions = []
+        for row in cur.fetchall():
+            sessions.append({
+                "id": row['id'],
+                "session_id": row['id'],
+                "created_at": row['created_at'],
+                "started_at": row['created_at'],
+                "last_message": row['last_message'] or "New Conversation",
+                "message_count": row['message_count'] or 0
+            })
+            
+        return sessions
     except Exception as e:
-        logger.error(f"❌ Error processing message: {str(e)}")
-        logger.exception(e)
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=f"Error processing message: {str(e)}")
+        logger.error(f"Error fetching sessions: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
     finally:
-        cursor.close()
+        cur.close()
         conn.close()
 
 
-@router.get("/sessions", response_model=List[ChatSessionResponse])
-async def get_chat_sessions(authorization: Optional[str] = Header(None)):
-    """
-    Get all chat sessions for the current user
-    """
-    user_id = get_current_user(authorization)
-
+@router.get("/sessions/{session_id}/messages")
+async def get_session_messages(session_id: int, authorization: Optional[str] = Header(None)):
+    """Retrieve all messages for a given chat session."""
+    user_id = 1
     conn = get_db_connection()
-    cursor = conn.cursor()
-
+    cur = conn.cursor()
     try:
-        cursor.execute(
-            """SELECT
-                cs.id,
-                cs.started_at,
-                cs.last_message_at,
-                cs.is_active,
-                COUNT(cm.id) as message_count
-               FROM chat_sessions cs
-               LEFT JOIN chat_messages cm ON cs.id = cm.session_id
-               WHERE cs.user_id = %s
-               GROUP BY cs.id, cs.started_at, cs.last_message_at, cs.is_active
-               ORDER BY cs.last_message_at DESC""",
-            (user_id,)
-        )
-        sessions = cursor.fetchall()
+        # Verify session belongs to user
+        cur.execute("SELECT id FROM chat_sessions WHERE id = %s AND user_id = %s", (session_id, user_id))
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="Session not found")
 
-        return [
-            ChatSessionResponse(
-                id=session['id'],
-                started_at=session['started_at'].isoformat(),
-                last_message_at=session['last_message_at'].isoformat(),
-                is_active=session['is_active'],
-                message_count=session['message_count']
-            )
-            for session in sessions
-        ]
-
+        cur.execute("""
+            SELECT role, content, created_at
+            FROM chat_messages
+            WHERE session_id = %s
+            ORDER BY created_at ASC
+        """, (session_id,))
+        messages = [{"role": row['role'], "content": row['content'], "created_at": row['created_at']} for row in cur.fetchall()]
+        return messages
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching messages: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
     finally:
-        cursor.close()
+        cur.close()
         conn.close()
 
 
 @router.post("/sessions/new")
 async def create_new_session(authorization: Optional[str] = Header(None)):
-    """
-    Create a new chat session
-    """
-    user_id = get_current_user(authorization)
-
+    """Create a new chat session."""
+    user_id = 1
     conn = get_db_connection()
-    cursor = conn.cursor()
-
+    cur = conn.cursor()
     try:
-        cursor.execute(
-            "INSERT INTO chat_sessions (user_id) VALUES (%s) RETURNING id, started_at, last_message_at, is_active",
-            (user_id,)
-        )
-        session = cursor.fetchone()
+        cur.execute("INSERT INTO chat_sessions (user_id) VALUES (%s) RETURNING id, created_at", (user_id,))
+        row = cur.fetchone()
         conn.commit()
-
-        return ChatSessionResponse(
-            id=session['id'],
-            started_at=session['started_at'].isoformat(),
-            last_message_at=session['last_message_at'].isoformat(),
-            is_active=session['is_active'],
-            message_count=0
-        )
-
+        return {
+            "id": row['id'],
+            "session_id": row['id'],
+            "created_at": row['created_at'],
+            "started_at": row['created_at'],
+            "last_message": "New Conversation",
+            "message_count": 0
+        }
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error creating session: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
     finally:
-        cursor.close()
+        cur.close()
         conn.close()
 
 
-@router.get("/sessions/{session_id}/messages")
-async def get_session_messages(
-    session_id: int,
-    authorization: Optional[str] = Header(None)
-):
+@router.post("/message", response_model=ChatResponse)
+async def send_chat_message(chat_msg: ChatMessage, authorization: Optional[str] = Header(None)):
     """
-    Get all messages for a specific chat session
+    Main chat endpoint.
     """
-    user_id = get_current_user(authorization)
+    logger.info("="*80)
+    logger.info(f"📨 Received chat message: '{chat_msg.message}'")
 
+    user_id = 1
+    
     conn = get_db_connection()
-    cursor = conn.cursor()
-
+    cur = conn.cursor()
+    
     try:
-        # Verify session belongs to user
-        cursor.execute(
-            "SELECT id FROM chat_sessions WHERE id = %s AND user_id = %s",
-            (session_id, user_id)
+        # 1. Get or Create Session
+        session_id = chat_msg.session_id
+
+        if session_id:
+            # Verify session exists
+            cur.execute("SELECT id FROM chat_sessions WHERE id = %s AND user_id = %s", (session_id, user_id))
+            if not cur.fetchone():
+                logger.warning(f"Session {session_id} not found, creating new one")
+                session_id = None
+
+        if not session_id:
+            logger.info("🔄 Creating new chat session...")
+            cur.execute(
+                "INSERT INTO chat_sessions (user_id) VALUES (%s) RETURNING id",
+                (user_id,)
+            )
+            session_id = cur.fetchone()['id']
+            conn.commit()
+
+        logger.info(f"✅ Using session_id={session_id}")
+
+        # 2. Fetch User Preferences (Using NEW DB Schema)
+        logger.info(f"🔄 Fetching user preferences for user {user_id}...")
+        
+        # Query your new normalized table structure
+        cur.execute("""
+            SELECT category, subcategory, value_text, value_json, confidence_score
+            FROM user_preferences 
+            WHERE user_id = %s
+        """, (user_id,))
+        
+        rows = cur.fetchall()
+        
+        # Transform DB rows into a clean dictionary for the LLM
+        preferences_data = {
+            "cuisines": [],
+            "dietary_restrictions": [],
+            "price_preference": "Any",
+            "ambiance_preference": [],
+            "flavor_profile": {},
+            "general_notes": []
+        }
+
+        for row in rows:
+            category = row['category']
+            subcategory = row['subcategory']
+            val_text = row['value_text']
+            val_json = row['value_json']
+            score = row['confidence_score']
+
+            # Skip low confidence preferences
+            if score is not None and score < 0.4:
+                continue
+
+            # Map DB categories to LLM JSON structure
+            if category == 'cuisine' and val_text:
+                preferences_data["cuisines"].append(val_text)
+            elif category == 'dietary' and val_text:
+                preferences_data["dietary_restrictions"].append(val_text)
+            elif category == 'price' and val_text:
+                preferences_data["price_preference"] = val_text
+            elif category == 'ambiance' and val_text:
+                preferences_data["ambiance_preference"].append(val_text)
+            elif category == 'flavor' and subcategory:
+                preferences_data["flavor_profile"][subcategory] = val_text
+            elif category == 'general' and val_text:
+                preferences_data["general_notes"].append(val_text)
+
+        logger.info(f"✅ Loaded preferences: {len(rows)} records found")
+
+        # 3. Fetch Chat History
+        cur.execute("""
+            SELECT role, content 
+            FROM chat_messages 
+            WHERE session_id = %s 
+            ORDER BY created_at ASC
+        """, (session_id,))
+        
+        history_rows = cur.fetchall()
+        chat_history = [{"role": row['role'], "content": row['content']} for row in history_rows]
+
+        # 4. Generate LLM Response
+        logger.info("🤖 Calling LLM service...")
+        
+        ai_response_text = await generate_chat_response(
+            message=chat_msg.message,
+            history=chat_history,
+            user_preferences=preferences_data
         )
-        session = cursor.fetchone()
-        if not session:
-            raise HTTPException(status_code=404, detail="Chat session not found")
-
-        # Get messages
-        cursor.execute(
-            """SELECT id, role, content, recommendations, created_at
-               FROM chat_messages
-               WHERE session_id = %s
-               ORDER BY created_at ASC""",
-            (session_id,)
-        )
-        messages = cursor.fetchall()
-
-        return [
-            {
-                "id": msg['id'],
-                "role": msg['role'],
-                "content": msg['content'],
-                "recommendations": msg['recommendations'],
-                "created_at": msg['created_at'].isoformat()
-            }
-            for msg in messages
-        ]
-
-    finally:
-        cursor.close()
-        conn.close()
-
-
-@router.delete("/sessions/{session_id}")
-async def deactivate_session(
-    session_id: int,
-    authorization: Optional[str] = Header(None)
-):
-    """
-    Deactivate a chat session (soft delete)
-    """
-    user_id = get_current_user(authorization)
-
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    try:
-        cursor.execute(
-            "UPDATE chat_sessions SET is_active = FALSE WHERE id = %s AND user_id = %s RETURNING id",
-            (session_id, user_id)
-        )
-        result = cursor.fetchone()
+        
+        # 5. Save Conversation to DB
+        # Save User Message
+        cur.execute("""
+            INSERT INTO chat_messages (session_id, role, content)
+            VALUES (%s, 'user', %s)
+        """, (session_id, chat_msg.message))
+        
+        # Save Assistant Response
+        cur.execute("""
+            INSERT INTO chat_messages (session_id, role, content)
+            VALUES (%s, 'assistant', %s)
+        """, (session_id, ai_response_text))
+        
+        # Update Session Timestamp
+        cur.execute("""
+            UPDATE chat_sessions 
+            SET updated_at = CURRENT_TIMESTAMP 
+            WHERE id = %s
+        """, (session_id,))
+        
         conn.commit()
+        
+        return ChatResponse(
+            response=ai_response_text,
+            session_id=session_id
+        )
 
-        if not result:
-            raise HTTPException(status_code=404, detail="Chat session not found")
-
-        return {"message": "Chat session deactivated successfully"}
-
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"❌ Error processing message: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
-        cursor.close()
+        cur.close()
         conn.close()

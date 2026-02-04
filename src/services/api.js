@@ -77,42 +77,6 @@ export const logout = () => {
   localStorage.removeItem('user');
 };
 
-// Preferences APIs
-export const savePreferences = async (preferences) => {
-  const token = getAuthToken();
-
-  if (!token) {
-    throw new Error('No authentication token found');
-  }
-
-  const data = await apiRequest('/api/preferences/', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(preferences),
-  });
-
-  return data;
-};
-
-export const getPreferences = async () => {
-  const token = getAuthToken();
-
-  if (!token) {
-    throw new Error('No authentication token found');
-  }
-
-  const data = await apiRequest('/api/preferences/', {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
-
-  return data;
-};
-
 // Helper to check if user is authenticated
 export const isAuthenticated = () => {
   return !!getAuthToken();
@@ -192,4 +156,165 @@ export const createNewSession = async () => {
   });
 
   return data;
+};
+
+// Phase 3: Preference Extraction APIs
+
+export const searchRestaurants = async (name, location) => {
+  const token = getAuthToken();
+
+  if (!token) {
+    throw new Error('No authentication token found');
+  }
+
+  const data = await apiRequest('/api/preferences/search-restaurant', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ name, location }),
+  });
+
+  // Backend returns an array of transformed restaurant objects
+  return data;
+};
+
+export const submitOnboarding = async (restaurants) => {
+  const token = getAuthToken();
+
+  if (!token) {
+    throw new Error('No authentication token found');
+  }
+
+  const data = await apiRequest('/api/preferences/onboarding', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ restaurants }),
+  });
+
+  return data;
+};
+
+export const startExtraction = async (forceRefresh = false) => {
+  const token = getAuthToken();
+
+  if (!token) {
+    throw new Error('No authentication token found');
+  }
+
+  const data = await apiRequest('/api/preferences/extract', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ force_refresh: forceRefresh }),
+  });
+
+  return data;
+};
+
+export const getExtractionStatus = async () => {
+  const token = getAuthToken();
+
+  if (!token) {
+    throw new Error('No authentication token found');
+  }
+
+  const data = await apiRequest('/api/preferences/extraction-status', {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  return data;
+};
+
+export const getQuestionnaire = async () => {
+  const token = getAuthToken();
+
+  if (!token) {
+    throw new Error('No authentication token found');
+  }
+
+  const data = await apiRequest('/api/preferences/questionnaire', {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  return data;
+};
+
+export const submitQuestionnaire = async (answers) => {
+  const token = getAuthToken();
+
+  if (!token) {
+    throw new Error('No authentication token found');
+  }
+
+  const data = await apiRequest('/api/preferences/questionnaire', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ answers }),
+  });
+
+  return data;
+};
+
+export const getPreferenceProfile = async () => {
+  const token = getAuthToken();
+
+  if (!token) {
+    throw new Error('No authentication token found');
+  }
+
+  const data = await apiRequest('/api/preferences/profile', {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  return data;
+};
+
+// Legacy survey preferences (for backwards compatibility with Survey.jsx)
+export const savePreferences = async (preferences) => {
+  const token = getAuthToken();
+
+  if (!token) {
+    throw new Error('No authentication token found');
+  }
+
+  // Convert legacy survey format to questionnaire format
+  const answers = Object.entries(preferences).map(([key, value]) => ({
+    question_id: `legacy_${key}`,
+    answer_value: value
+  }));
+
+  const data = await apiRequest('/api/preferences/questionnaire', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ answers }),
+  });
+
+  return data;
+};
+
+// Check if user has already completed preference extraction
+export const hasCompletedPreferences = async () => {
+  try {
+    const status = await getExtractionStatus();
+    return status.status === 'completed';
+  } catch {
+    return false;
+  }
 };
